@@ -30,8 +30,8 @@ PROXY_PORTS = [
     8081, 8082, 8083, 8085, 6588, 2020,
 ]
 
-SCAN_THREADS    = 500   # Parallel port scanners
-TEST_THREADS    = 100   # Parallel proxy testers
+SCAN_THREADS    = 1000  # Parallel port scanners
+TEST_THREADS    = 300   # Parallel proxy testers
 SCAN_TIMEOUT    = 1.5   # Seconds for port connect
 TEST_TIMEOUT    = 8     # Seconds for proxy validation
 TEST_URL        = "http://httpbin.org/ip"   # URL used to validate proxy
@@ -135,27 +135,13 @@ def test_socks5_proxy(ip: str, port: int) -> bool:
 
 def classify_and_test(ip: str, port: int) -> Optional[str]:
     """
-    Try the proxy as HTTP, SOCKS5, then SOCKS4.
-    Returns the proxy string with type label if working, else None.
+    Single HTTP-only validation for maximum speed.
+    Returns the proxy string if working, else None.
     """
     with stats_lock:
         stats["tested"] += 1
 
-    socks_ports = {1080, 1081, 4145}
-    is_socks    = port in socks_ports
-
-    if not is_socks:
-        if test_http_proxy(ip, port):
-            return f"HTTP  | {ip}:{port}"
-
-    if test_socks5_proxy(ip, port):
-        return f"SOCKS5| {ip}:{port}"
-
-    if test_socks4_proxy(ip, port):
-        return f"SOCKS4| {ip}:{port}"
-
-    # Fallback: try HTTP anyway for any port
-    if is_socks and test_http_proxy(ip, port):
+    if test_http_proxy(ip, port):
         return f"HTTP  | {ip}:{port}"
 
     return None

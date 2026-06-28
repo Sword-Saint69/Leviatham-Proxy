@@ -22,17 +22,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ─── CONFIG ────────────────────────────────────────────────
 SOURCE_FILE  = "source.txt"
-OUTPUT_FILE  = "working_proxies.txt"
-TEST_THREADS = 500
+TEST_THREADS = 1000
 TEST_TIMEOUT = 8        # seconds per proxy test
 FETCH_TIMEOUT= 15       # seconds to fetch a source URL
 
-# Multiple test URLs — rotate to avoid rate-limiting
-TEST_URLS = [
-    "http://www.google.com/generate_204",   # Returns 204, ultra-reliable
-    "http://example.com",
-    "http://httpbin.org/ip",
-]
+# Output files — auto-created in their folders
+OUT_GOOGLE  = os.path.join("http",   "google.txt")   # HTTP via Google
+OUT_HTTPBIN = os.path.join("http",   "httpbin.txt")  # HTTP via HttpBin
+OUT_SOCKS5  = os.path.join("socks5", "working.txt")  # SOCKS5 proxies
+
+# Test URLs
+URL_GOOGLE  = "http://www.google.com/generate_204"  # expects 204
+URL_HTTPBIN = "http://httpbin.org/ip"               # expects 200 + JSON
 
 # ─── COLORS (disabled in CI) ───────────────────────────────
 if IS_CI:
@@ -92,12 +93,15 @@ BUILTIN_SOURCES = [
 # ─── GLOBALS ───────────────────────────────────────────────
 stats = {
     "fetched": 0, "total": 0, "tested": 0,
-    "working": 0, "failed": 0, "start": time.time(),
+    "google": 0, "httpbin": 0, "socks5": 0,
+    "failed": 0, "start": time.time(),
 }
-stats_lock    = threading.Lock()
-found_proxies = set()
-found_lock    = threading.Lock()
-stop_event    = threading.Event()
+stats_lock     = threading.Lock()
+found_google   = set()
+found_httpbin  = set()
+found_socks5   = set()
+found_lock     = threading.Lock()
+stop_event     = threading.Event()
 
 PROXY_RE = re.compile(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[:\s](\d{2,5})\b")
 
@@ -280,6 +284,7 @@ def fetch_all_sources(sources):
 # ─── TEST ──────────────────────────────────────────────────
 
 def _try_url(proxy_url, test_url):
+    """Single HTTP request through proxy. Returns True on 200/204."""
     try:
         r = requests.get(
             test_url,
@@ -292,31 +297,24 @@ def _try_url(proxy_url, test_url):
         return False
 
 
-def test_http(ip, port):
-    url = f"http://{ip}:{port}"
-    for test_url in TEST_URLS:
-        if _try_url(url, test_url):
-            return True
-    return False
+def test_http_google(ip, port):
+    return _try_url(f"http://{ip}:{port}", URL_GOOGLE)
 
 
-def test_socks5(ip, port):
-    url = f"socks5://{ip}:{port}"
-    for test_url in TEST_URLS:
-        if _try_url(url, test_url):
-            return True
-    return False
+def test_http_httpbin(ip, port):
+    return _try_url(f"http://{ip}:{port}", URL_HTTPBIN)
 
 
-def test_socks4(ip, port):
-    url = f"socks4://{ip}:{port}"
-    for test_url in TEST_URLS:
-        if _try_url(url, test_url):
-            return True
-    return False
+def test_socks5_proxy(ip, port):
+    return _try_url(f"socks5://{ip}:{port}", URL_GOOGLE)
 
 
 def test_proxy(proxy):
+    """
+    Runs all 3 checks independently (parallel via inner threads).
+    Returns (proxy, results_dict) where results_dict has boolean values
+    for 'google', 'httpbin', 'socks5'.
+    """
     with stats_lock:
         stats["tested"] += 1
     try:
@@ -325,38 +323,58 @@ def test_proxy(proxy):
     except Exception:
         with stats_lock:
             stats["failed"] += 1
-        return proxy, None
+        return proxy, {}
 
-    socks_ports = {1080, 1081, 4145, 9050, 9150}
+    # Run all 3 checks in parallel sub-threads
+    results = {"google": False, "httpbin": False, "socks5": False}
+    def _run(key, fn, i, p):
+        results[key] = fn(i, p)
 
-    if port not in socks_ports:
-        if test_http(ip, port):
-            return proxy, "HTTP"
+    checkers = [
+        threading.Thread(target=_run, args=("google",  test_http_google,  ip, port)),
+        threading.Thread(target=_run, args=("httpbin", test_http_httpbin, ip, port)),
+        threading.Thread(target=_run, args=("socks5",  test_socks5_proxy, ip, port)),
+    ]
+    for t in checkers:
+        t.start()
+    for t in checkers:
+        t.join()
 
-    if test_socks5(ip, port):
-        return proxy, "SOCKS5"
-
-    if test_socks4(ip, port):
-        return proxy, "SOCKS4"
-
-    if port in socks_ports and test_http(ip, port):
-        return proxy, "HTTP"
-
-    with stats_lock:
-        stats["failed"] += 1
-    return proxy, None
+    if not any(results.values()):
+        with stats_lock:
+            stats["failed"] += 1
+    return proxy, results
 
 
-def save_working(proxy, proto):
+def save_working(proxy, results):
+    """Save proxy to whichever output files it qualified for."""
+    saved_any = False
     with found_lock:
-        if proxy not in found_proxies:
-            found_proxies.add(proxy)
-            with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
+        if results.get("google") and proxy not in found_google:
+            found_google.add(proxy)
+            with open(OUT_GOOGLE, "a", encoding="utf-8") as f:
                 f.write(proxy + "\n")
             with stats_lock:
-                stats["working"] += 1
-            return True
-    return False
+                stats["google"] += 1
+            saved_any = True
+
+        if results.get("httpbin") and proxy not in found_httpbin:
+            found_httpbin.add(proxy)
+            with open(OUT_HTTPBIN, "a", encoding="utf-8") as f:
+                f.write(proxy + "\n")
+            with stats_lock:
+                stats["httpbin"] += 1
+            saved_any = True
+
+        if results.get("socks5") and proxy not in found_socks5:
+            found_socks5.add(proxy)
+            with open(OUT_SOCKS5, "a", encoding="utf-8") as f:
+                f.write(proxy + "\n")
+            with stats_lock:
+                stats["socks5"] += 1
+            saved_any = True
+
+    return saved_any
 
 # ─── DASHBOARD ─────────────────────────────────────────────
 
@@ -365,7 +383,9 @@ def live_dashboard(total):
         time.sleep(2 if IS_CI else 0.5)
         with stats_lock:
             tested  = stats["tested"]
-            working = stats["working"]
+            google  = stats["google"]
+            httpbin = stats["httpbin"]
+            socks5  = stats["socks5"]
             failed  = stats["failed"]
             elapsed = time.time() - stats["start"]
         pct   = tested / max(total, 1) * 100
@@ -373,26 +393,39 @@ def live_dashboard(total):
         bar   = "#" * int(30 * tested / max(total,1)) + "-" * (30 - int(30 * tested / max(total,1)))
         line  = (
             f"\r[{bar}] {pct:>5.1f}% "
-            f"| Tested:{tested:>6} | Working:{working:>4} "
-            f"| Failed:{failed:>6} | {speed:>5.0f}/s | "
-            f"{int(elapsed//60):02d}:{int(elapsed%60):02d}"
+            f"| Tested:{tested:>6} | Failed:{failed:>6} "
+            f"| G:{google:>4} HB:{httpbin:>4} S5:{socks5:>4} "
+            f"| {speed:>5.0f}/s | {int(elapsed//60):02d}:{int(elapsed%60):02d}"
         )
         sys.stdout.write(line)
         sys.stdout.flush()
 
 # ─── MAIN ──────────────────────────────────────────────────
 
+def init_output_files(sources, total):
+    """Create output directories and write headers to all 3 files."""
+    os.makedirs("http",   exist_ok=True)
+    os.makedirs("socks5", exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+    header = f"# Updated: {ts} | Sources: {len(sources)} | Total tested: {total}\n"
+    for path in (OUT_GOOGLE, OUT_HTTPBIN, OUT_SOCKS5):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(header)
+
+
 def main():
     print(f"""
 +============================================================+
-|   PROXY FETCHER + TESTER  v3.0  (CI Edition)              |
-|   Fetch -> Dedup -> 500-thread test -> Save                |
+|   PROXY FETCHER + TESTER  v3.1  (CI Edition)              |
+|   Fetch -> Dedup -> 1000-thread test -> 3 output files     |
 +============================================================+
-  Sources : {SOURCE_FILE}
-  Output  : {OUTPUT_FILE}
-  Threads : {TEST_THREADS}
-  Timeout : {TEST_TIMEOUT}s per proxy
-  CI mode : {IS_CI}
+  Sources  : {SOURCE_FILE}
+  Outputs  : {OUT_GOOGLE}
+             {OUT_HTTPBIN}
+             {OUT_SOCKS5}
+  Threads  : {TEST_THREADS}
+  Timeout  : {TEST_TIMEOUT}s per proxy
+  CI mode  : {IS_CI}
 """)
 
     sources = load_sources()
@@ -405,13 +438,11 @@ def main():
         print("[!] No proxies fetched.")
         sys.exit(1)
 
-    # Fresh output file with metadata header
     total = len(proxies)
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        f.write(f"# Updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
-                f" | Source count: {len(sources)} | Total tested: {total}\n")
+    init_output_files(sources, total)
 
     print(f"\n[*] Testing {total:,} proxies with {TEST_THREADS} threads...")
+    print(f"    Checking: Google ({URL_GOOGLE}) | HttpBin ({URL_HTTPBIN}) | SOCKS5")
     if not IS_CI:
         print("    Press Ctrl+C to stop early.\n")
 
@@ -425,12 +456,13 @@ def main():
                 if stop_event.is_set():
                     break
                 try:
-                    proxy, proto = future.result()
-                    if proto:
-                        is_new = save_working(proxy, proto)
-                        if is_new and not IS_CI:
+                    proxy, results = future.result()
+                    if any(results.values()):
+                        save_working(proxy, results)
+                        if not IS_CI:
+                            tags = "/".join(k.upper() for k, v in results.items() if v)
                             ts = datetime.now().strftime("%H:%M:%S")
-                            sys.stdout.write(f"\n[LIVE] {proto:<6} {proxy:<25} @ {ts}\n")
+                            sys.stdout.write(f"\n[LIVE] [{tags}] {proxy:<25} @ {ts}\n")
                             sys.stdout.flush()
                 except Exception:
                     pass
@@ -443,7 +475,9 @@ def main():
 
     with stats_lock:
         elapsed = time.time() - stats["start"]
-        working = stats["working"]
+        google  = stats["google"]
+        httpbin = stats["httpbin"]
+        socks5  = stats["socks5"]
         tested  = stats["tested"]
 
     print(f"""
@@ -453,15 +487,15 @@ def main():
 +==============================+
 |  Total    : {total:<11,}     |
 |  Tested   : {tested:<11,}     |
-|  Working  : {working:<11}     |
+|  Google   : {google:<11}     |  -> {OUT_GOOGLE}
+|  HttpBin  : {httpbin:<11}     |  -> {OUT_HTTPBIN}
+|  SOCKS5   : {socks5:<11}     |  -> {OUT_SOCKS5}
 |  Time     : {int(elapsed//60):02d}m {int(elapsed%60):02d}s            |
-|  Output   : {OUTPUT_FILE:<11}     |
 +==============================+
 """)
-    # Exit non-zero if nothing found (fail the Action)
-    if working == 0:
+    if google + httpbin + socks5 == 0:
         print("[!] WARNING: 0 working proxies found.")
-        sys.exit(0)   # Still exit 0 so Action doesn't fail on bad proxies
+    sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ── 4. Raise file-descriptor limit for 500 threads ────
+      # ── 4. Raise file-descriptor limit for 1000 threads ───
       - name: Raise ulimit for high thread count
         run: ulimit -n 65536
 
@@ -45,26 +45,37 @@ jobs:
           PYTHONUNBUFFERED: "1"
 
       # ── 6. Show results ───────────────────────────────────
-      - name: Show working proxy count
+      - name: Show working proxy counts
         run: |
-          echo "=== working_proxies.txt ==="
-          echo "Total lines: $(wc -l < working_proxies.txt)"
-          echo "Working proxies: $(grep -v '^#' working_proxies.txt | grep -c '.' || true)"
+          echo "=== http/google.txt ==="
+          echo "Google-verified: $(grep -v '^#' http/google.txt | grep -c '.' || true)"
           echo ""
-          echo "First 20 proxies:"
-          grep -v '^#' working_proxies.txt | head -20 || true
+          echo "=== http/httpbin.txt ==="
+          echo "HttpBin-verified: $(grep -v '^#' http/httpbin.txt | grep -c '.' || true)"
+          echo ""
+          echo "=== socks5/working.txt ==="
+          echo "SOCKS5 working: $(grep -v '^#' socks5/working.txt | grep -c '.' || true)"
+          echo ""
+          echo "--- Sample (Google) ---"
+          grep -v '^#' http/google.txt | head -10 || true
+          echo "--- Sample (HttpBin) ---"
+          grep -v '^#' http/httpbin.txt | head -10 || true
+          echo "--- Sample (SOCKS5) ---"
+          grep -v '^#' socks5/working.txt | head -10 || true
 
-      # ── 7. Commit & push updated list ─────────────────────
-      - name: Commit updated proxy list
+      # ── 7. Commit & push all output files ─────────────────
+      - name: Commit updated proxy lists
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add working_proxies.txt
+          git add http/ socks5/ index.html
           # Only commit if there are actual changes
           if git diff --cached --quiet; then
-            echo "No changes to proxy list — skipping commit."
+            echo "No changes to proxy lists — skipping commit."
           else
-            PROXY_COUNT=$(grep -v '^#' working_proxies.txt | grep -c '.' || echo 0)
-            git commit -m "chore: update proxies [${PROXY_COUNT} working] $(date -u '+%Y-%m-%d %H:%M UTC')"
+            G=$(grep -v '^#' http/google.txt  | grep -c '.' || echo 0)
+            H=$(grep -v '^#' http/httpbin.txt | grep -c '.' || echo 0)
+            S=$(grep -v '^#' socks5/working.txt | grep -c '.' || echo 0)
+            git commit -m "chore: update proxies [G:${G} HB:${H} S5:${S}] $(date -u '+%Y-%m-%d %H:%M UTC')"
             git push
           fi
