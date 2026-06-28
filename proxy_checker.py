@@ -102,6 +102,18 @@ found_socks5   = set()
 found_lock     = threading.Lock()
 stop_event     = threading.Event()
 
+def reset_globals():
+    global stats, found_google, found_httpbin, found_socks5, stop_event
+    stats = {
+        "fetched": 0, "total": 0, "tested": 0,
+        "google": 0, "httpbin": 0, "socks5": 0,
+        "failed": 0, "start": time.time(),
+    }
+    found_google = set()
+    found_httpbin = set()
+    found_socks5 = set()
+    stop_event = threading.Event()
+
 PROXY_RE = re.compile(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})[:\s](\d{2,5})\b")
 
 # ─── FETCH ─────────────────────────────────────────────────
@@ -413,6 +425,7 @@ def init_output_files(sources, total):
 
 
 def main():
+    reset_globals()
     print(f"""
 +============================================================+
 |   PROXY FETCHER + TESTER  v3.1  (CI Edition)              |
@@ -435,7 +448,7 @@ def main():
 
     if not proxies:
         print("[!] No proxies fetched.")
-        sys.exit(1)
+        return
 
     total = len(proxies)
     init_output_files(sources, total)
@@ -494,7 +507,6 @@ def main():
 """)
     if google + httpbin + socks5 == 0:
         print("[!] WARNING: 0 working proxies found.")
-    sys.exit(0)
 
 
 if __name__ == "__main__":
@@ -504,9 +516,14 @@ if __name__ == "__main__":
         "--recheck", action="store_true",
         help="Only dedup + recheck existing working_proxies.txt"
     )
+    parser.add_argument(
+        "--loop", action="store_true",
+        help="Run continuously every 15 minutes"
+    )
     args = parser.parse_args()
 
     if args.recheck:
+        reset_globals()
         print("[*] RECHECK MODE — re-testing existing working_proxies.txt")
         if not os.path.exists(OUTPUT_FILE):
             print("[!] File not found.")
@@ -551,4 +568,15 @@ if __name__ == "__main__":
 
         print(f"\n\n[DONE] Alive: {len(alive)} / {len(unique)} -> {OUTPUT_FILE}")
     else:
-        main()
+        if args.loop:
+            while True:
+                main()
+                print("\n[*] Waiting 15 minutes before the next run...")
+                print("[*] Press Ctrl+C to stop.")
+                try:
+                    time.sleep(15 * 60)
+                except KeyboardInterrupt:
+                    print("\n[!] Loop stopped by user.")
+                    break
+        else:
+            main()
