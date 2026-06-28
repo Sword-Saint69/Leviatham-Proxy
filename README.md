@@ -1,5 +1,6 @@
 # 🌐 Leviatham-Proxy — Free Proxy List Auto-Updated Every Hour
 
+
 [![Proxy Checker](https://github.com/Sword-Saint69/Leviatham-Proxy/actions/workflows/proxy-check.yml/badge.svg)](https://github.com/Sword-Saint69/Leviatham-Proxy/actions/workflows/proxy-check.yml)
 
 Working proxies are fetched from **38 public sources**, tested live, deduplicated, and committed automatically **every hour** via GitHub Actions.
