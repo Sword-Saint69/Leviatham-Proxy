@@ -1,31 +1,45 @@
-# 🌐 Leviatham-Proxy — Free Proxy List Auto-Updated Every Hour
-
+# 🌐 Leviatham-Proxy — Live Proxy Intelligence
 
 [![Proxy Checker](https://github.com/Sword-Saint69/Leviatham-Proxy/actions/workflows/proxy-check.yml/badge.svg)](https://github.com/Sword-Saint69/Leviatham-Proxy/actions/workflows/proxy-check.yml)
 
-Working proxies are fetched from **38 public sources**, tested live, deduplicated, and committed automatically **every hour** via GitHub Actions.
+Working proxies are fetched from **38 public sources**, tested live via 1000 parallel threads, deduplicated, and committed automatically **every hour** via GitHub Actions.
+
+## 📊 Live Dashboard
+View live stats, copy, and download the latest proxies directly from the dashboard:  
+👉 **[Live Proxy Dashboard](https://Sword-Saint69.github.io/Leviatham-Proxy/)**
 
 ---
 
-## 📥 Get Proxies
+## 📥 Get Proxies (Raw URLs)
 
-**Raw URL** (use directly in your scripts):
-```
-https://raw.githubusercontent.com/Sword-Saint69/Leviatham-Proxy/main/working_proxies.txt
-```
+Use these raw links directly in your scripts:
+
+- **Google-Verified HTTP Proxies** (Checked via `google.com/generate_204`)
+  ```text
+  https://raw.githubusercontent.com/Sword-Saint69/Leviatham-Proxy/main/http/google.txt
+  ```
+- **HttpBin-Verified HTTP Proxies** (Checked via `httpbin.org/ip`)
+  ```text
+  https://raw.githubusercontent.com/Sword-Saint69/Leviatham-Proxy/main/http/httpbin.txt
+  ```
+- **SOCKS5 Proxies**
+  ```text
+  https://raw.githubusercontent.com/Sword-Saint69/Leviatham-Proxy/main/socks5/working.txt
+  ```
 
 ---
 
 ## 📂 Files
 
-| File | Description |
-|------|-------------|
-| `working_proxies.txt` | Verified working proxies — auto-updated every hour |
-| `proxy_checker.py` | Fetch + test + save script |
-| `proxy_scanner.py` | Additional scanner script |
+| File/Folder | Description |
+|-------------|-------------|
+| `http/` | Contains `google.txt` and `httpbin.txt` (Live HTTP proxies) |
+| `socks5/` | Contains `working.txt` (Live SOCKS5 proxies) |
+| `index.html` | The static HTML dashboard source code |
+| `proxy_checker.py` | 1000-thread fetch + test + save script |
+| `proxy_scanner.py` | Standalone port scanner script |
 | `source.txt` | Custom proxy source URLs (one per line) |
 | `requirements.txt` | Python dependencies |
-| `.github/workflows/proxy-check.yml` | GitHub Actions workflow |
 
 ---
 
@@ -35,11 +49,8 @@ https://raw.githubusercontent.com/Sword-Saint69/Leviatham-Proxy/main/working_pro
 # Install dependencies
 pip install -r requirements.txt
 
-# Full run: fetch from 38 sources + test + save
+# Full run: fetch from 38 sources + test (1000 threads) + save to 3 files
 python proxy_checker.py
-
-# Re-check only existing working_proxies.txt
-python proxy_checker.py --recheck
 ```
 
 ---
@@ -50,10 +61,9 @@ Edit the top of `proxy_checker.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `TEST_THREADS` | 500 | Parallel test workers |
+| `TEST_THREADS` | 1000 | Parallel test workers |
 | `TEST_TIMEOUT` | 8s | Timeout per proxy test |
 | `SOURCE_FILE` | `source.txt` | Your custom source URL list |
-| `OUTPUT_FILE` | `working_proxies.txt` | Output file |
 
 Add or remove source URLs in `source.txt` — one URL per line. If empty, the built-in list of 38 sources is used.
 
@@ -63,18 +73,17 @@ Add or remove source URLs in `source.txt` — one URL per line. If empty, the bu
 
 1. Push this repo to GitHub
 2. Go to **Settings → Actions → General** → set *Workflow permissions* to **Read and write**
-3. The workflow triggers automatically **every hour** at :00
-4. Trigger manually anytime via **Actions → Proxy Checker → Run workflow**
+3. Go to **Settings → Pages** → build from `main` branch to host the `index.html` dashboard
+4. The workflow triggers automatically **every hour** at :00
+5. Trigger manually anytime via **Actions → Proxy Checker → Run workflow**
 
 ---
 
 ## 📋 Proxy Format
 
-```
+```text
 ip:port
 ```
-
-Supports `HTTP`, `HTTPS`, `SOCKS4`, and `SOCKS5` proxies.
 
 ---
 
