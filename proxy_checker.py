@@ -87,7 +87,6 @@ BUILTIN_SOURCES = [
     "https://raw.githubusercontent.com/Vann-Dev/proxy-list/refs/heads/main/proxies/http.txt",
     "https://raw.githubusercontent.com/Vann-Dev/proxy-list/refs/heads/main/proxies/https.txt",
     "https://vakhov.github.io/fresh-proxy-list/proxylist.txt",
-    "https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt",
 ]
 
 # ─── GLOBALS ───────────────────────────────────────────────
